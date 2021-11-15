@@ -781,7 +781,7 @@ class Clouds {
     this.spirtsIndex = 0;
     this.cloudSpeed = 40;
     this.cloudSpawnArea = cloudSpawnArea;
-    this.clouds = this.generateCloud(7, canvasWidth, cloudSpawnArea);
+    this.clouds = this.generateCloud(5, canvasWidth, cloudSpawnArea);
     this.init(cloudWidth, canvasWidth);
   }
 
@@ -812,15 +812,15 @@ class Clouds {
     this.clouds = this.clouds.map((cloud) => {
       let cloudSpeed = cloud.speedFactor * this.cloudSpeed - velocity;
 
-      if (velocity < 0) {
+      if (velocity <= 0) {
         cloud.movingForward = true;
       }
 
       if (cloudSpeed < 0 && cloud.movingForward) {
         cloud.coordX =
-          -this.spirtWidth - Math.random() * 0.2 * this.canvasWidth;
+          -this.spirtWidth - Math.random() * 0.12 * this.canvasWidth;
         cloud.movingForward = false;
-        return cloud;
+        newCloudAdd = true;
       }
 
       if (
