@@ -1,30 +1,62 @@
 class Controller {
-  constructor(context, ratio = 0.5625) {
+  constructor(context, onStartCb, onLoseCb, onPointUpdate) {
     this.context = context;
     this.height = this.context.canvas.height;
     this.width = this.context.canvas.width;
+    this.playerStartCb = onStartCb;
+    this.playerLoseCb = onLoseCb;
+    this.playerUpdatePoint = onPointUpdate;
+    this.canReset = false;
+    this.points = 0;
+    this.pointInterval = null;
+
+    this.clashAudio = new Audio("Sounds/The Clash.mp3");
+    this.countdownAudio = new Audio("Sounds/Time Countdown.mp3");
+    this.loseAudio = new Audio("Sounds/Whining when you lose .mp3");
 
     this.activeKey = false;
     this.prevActiveKeyState = false;
     this.upKeyState = false;
     this.prevUpKeyState = false;
 
-    this.ratio = ratio;
-    this.gameVelocity = 40;
-    this.gameState = "PLAY";
+    this.ratio = 0.5625;
+    this.gameVelocity = 0;
+    this.gameState = "IDLE";
 
+    this.playerMaxJumpFactor = 0.5;
     this.playerWidthFactor = 0.11;
     this.obstacleWidthFactor = 0.1;
     this.groundWidthFactor = 0.25;
-    this.cloudWidthFactor = 0.1;
+    this.cloudWidthFactor = 0.15;
+    this.collisionFactor = 0.9;
 
-    this.maxPlayerJumpFactor = 0.3;
     this.playerCoordYOffset = 10;
     this.obstacleCoordYOffset = 0;
 
-    this.init();
+    this.countdownInterval = null;
+    this.counterSpirt = [
+      {
+        image: document.getElementById("count3"),
+      },
+      {
+        image: document.getElementById("count2"),
+      },
+      {
+        image: document.getElementById("count1"),
+      },
+    ];
+    this.counterFrameX = 350;
+    this.counterFrameY = 400;
+    this.counterFrameHeight = 280;
+    this.counterFrameWidth = 280;
+    this.counterSpirtFactor = 0.1;
+    this.count = 0;
 
-    this.cloudSpawnArea = 0.35 * this.height;
+    this.gameLoseSpirt = [{ image: document.getElementById("gameover") }];
+    this.gameLoseSpirtFactor = 0.7;
+
+    this.cloudSpawnArea = 0.5 * this.height;
+    this.init();
   }
 
   checkCollision(player, obstacle) {
@@ -33,14 +65,15 @@ class Controller {
 
     if (
       player.coordX < obstacle.coordX &&
-      player.coordX + player.spirtWidth > obstacle.coordX
+      player.coordX + this.collisionFactor * player.spirtWidth > obstacle.coordX
     ) {
       XCollision = true;
     }
 
     if (
-      player.coordY < obstacle.coordY &&
-      player.coordY + player.spirtHeight > obstacle.coordY
+      // player.coordY < obstacle.coordY &&
+      player.coordY + player.spirtHeight * this.collisionFactor >
+      obstacle.coordY
     ) {
       YCollision = true;
     }
@@ -53,28 +86,35 @@ class Controller {
       document.documentElement.clientWidth <
       document.documentElement.clientHeight
     ) {
-      this.width = document.documentElement.clientWidth;
+      this.width = document.documentElement.clientWidth - 50;
     } else {
-      this.width = document.documentElement.clientHeight;
+      this.width = document.documentElement.clientHeight - 50;
     }
 
-    this.height = this.width * this.ratio;
+    // this.height = this.width * this.ratio;
+    this.width = document.documentElement.clientWidth;
+    this.height = document.documentElement.clientHeight;
     this.context.imageSmoothingEnabled = false;
     this.context.canvas.setAttribute("height", this.height);
     this.context.canvas.setAttribute("width", this.width);
+    this.counterSpirtSize = this.counterSpirtFactor * this.width;
+    this.gameLoseSpirtWidth = this.gameLoseSpirtFactor * this.width;
+    this.gameLoseSpirtHeight = this.gameLoseSpirtWidth / 2.6;
     this.playerWidth = this.playerWidthFactor * this.width;
     this.obstacleWidth = this.obstacleWidthFactor * this.width;
     this.groundWidth = this.groundWidthFactor * this.width;
     this.cloudWidth = this.cloudWidthFactor * this.width;
+    this.playerMaxJump =
+      this.obstacleWidth + this.obstacleWidth * this.playerMaxJumpFactor;
 
     this.ground = new Ground(this.groundWidth, this.width);
     this.clouds = new Clouds(this.cloudWidth, this.width, this.cloudSpawnArea);
     this.player = new Player(
       this.playerWidth,
       this.height,
-      10,
+      50,
       Ground.groundHeight - this.playerCoordYOffset,
-      this.maxPlayerJumpFactor * this.height
+      this.playerMaxJump
     );
     this.obstacles = new Obstacles(
       this.obstacleWidth,
@@ -85,8 +125,6 @@ class Controller {
   };
 
   inputHandler = (event) => {
-    event.preventDefault();
-
     let keyState =
       event.type == "mousedown" || event.type == "touchstart" ? true : false;
 
@@ -104,6 +142,14 @@ class Controller {
 
     if (event.type == "keyup") {
       if (event.keyCode == 38 || event.keyCode == 32) {
+        if (this.gameState == "IDLE") {
+          this.start();
+        }
+        if (this.gameState == "LOSE") {
+          if (this.canReset) {
+            this.reset();
+          }
+        }
         upKeyState = true;
       }
     }
@@ -116,26 +162,67 @@ class Controller {
     this.context.clearRect(0, 0, this.width, this.height);
     this.ground.draw(this.context);
     this.clouds.draw(this.context);
-    this.obstacles.draw(this.context);
+    if (this.gameState != "PLAY") {
+      this.obstacles.draw(this.context);
+    }
     this.player.draw(this.context);
+    if (this.gameState == "COUNTDOWN") {
+      let currentCounterSpirt = this.counterSpirt[this.count];
+      if (currentCounterSpirt) {
+        this.context.drawImage(
+          currentCounterSpirt.image,
+          this.counterFrameX,
+          this.counterFrameY,
+          this.counterFrameWidth,
+          this.counterFrameHeight,
+          this.width / 2 - this.counterSpirtSize / 2,
+          this.height / 2 - this.counterSpirtSize / 2,
+          this.counterSpirtSize,
+          this.counterSpirtSize
+        );
+      }
+    }
+    if (this.gameState == "LOSE") {
+      let currentCounterSpirt = this.gameLoseSpirt[0];
+      if (currentCounterSpirt) {
+        this.context.drawImage(
+          currentCounterSpirt.image,
+          this.width / 2 - this.gameLoseSpirtWidth / 2,
+          this.height / 2 - this.gameLoseSpirtHeight / 2,
+          this.gameLoseSpirtWidth,
+          this.gameLoseSpirtHeight
+        );
+      }
+    }
   };
 
   update = () => {
-    if (this.activeKey) {
-      this.player.jump();
-    }
-
-    if (this.upKeyState) {
-      this.player.falldown();
-    }
-
     if (this.gameState == "PLAY") {
-      this.obstacles.update(this.gameVelocity);
+      this.obstacles.update(this.gameVelocity, this.context);
       this.obstacles.obstacles.forEach((obstacle) => {
         let isCollisionDetected = this.checkCollision(this.player, obstacle);
+        this.context.strokeRect(
+          this.player.coordX,
+          this.player.coordY,
+          this.player.spirtWidth,
+          this.player.spirtHeight
+        );
+        this.context.strokeRect(
+          obstacle.coordX,
+          obstacle.coordY,
+          obstacle.spirtWidth,
+          obstacle.spirtHeight
+        );
         if (isCollisionDetected) {
-          this.gameState = "LOSE";
-          this.player.lose();
+          this.lose();
+        }
+
+        if (this.activeKey) {
+          this.player.jump();
+        }
+
+        if (this.upKeyState) {
+          this.player.falldown();
         }
       });
     }
@@ -157,43 +244,82 @@ class Controller {
     this.gameVelocity = this.gameVelocity + this.gameVelocity * 0.001;
   };
 
+  setReset = () => {
+    this.canReset = true;
+  };
+
   reset = () => {
-    console.log(reset);
+    if (this.gameState != "LOSE") return;
+
+    this.canReset = false;
+    this.gameState = "IDLE";
+    this.gameVelocity = 0;
+    this.count = 0;
+    this.player.reset();
+    this.obstacles.reset();
+    this.playerUpdatePoint(this.points);
+    this.start();
+  };
+
+  start = () => {
+    if (this.gameState == "IDLE" || this.gameState == "LOSE") {
+      this.playerStartCb();
+      this.countdownAudio.play();
+      this.countdownInterval = setInterval(() => {
+        this.count++;
+        if (this.count >= this.counterSpirt.length) {
+          this.play();
+          this.countdownAudio.pause();
+          this.countdownAudio.currentTime = 0;
+        }
+      }, 1000);
+      this.gameState = "COUNTDOWN";
+      this.canReset = false;
+    }
+  };
+
+  play = () => {
+    if (this.countdownInterval) clearInterval(this.countdownInterval);
+    this.player.start();
+    this.gameState = "PLAY";
+    this.gameVelocity = 40;
+    this.pointInterval = setInterval(() => {
+      this.points++;
+      this.playerUpdatePoint(this.points);
+    }, 150);
+  };
+
+  lose = () => {
+    this.gameState = "LOSE";
+    this.clashAudio.play();
+    this.playerLoseCb(this.points, this);
+    this.points = 0;
+    this.gameVelocity = 0;
+    if (this.pointInterval) clearInterval(this.pointInterval);
+    this.player.lose();
+    setTimeout(() => {
+      this.loseAudio.play();
+    }, 500);
   };
 
   resize = (event) => {
     this.init();
-
-    this.player.init(this.playerWidth, 20, this.playerCoordY);
-    this.obstacles.init(this.obstacleWidth, this.playerCoordY - 70, this.width);
-    this.ground.init(this.groundWidth, this.width);
-    this.clouds.init(this.cloudWidth);
-
-    this.ground.init(this.groundWidth, this.width);
-    this.clouds.init(this.cloudWidth, this.width, this.cloudSpawnArea);
-    this.player.init(this.playerWidth, this.height, 10, Ground.groundHeight);
-    this.obstacles.init(
-      this.obstacleWidth,
-      Ground.groundHeight,
-      this.width,
-      this.height
-    );
-
     this.draw();
   };
 }
 
 class Player {
-  constructor(playerWidth, height, coordX, coordY, maxJumpFactor) {
+  constructor(playerWidth, height, coordX, coordY, maxJump) {
     this.alive = true;
     this.jumping = false;
     this.jumpVelocityFactor = 5;
-    this.jumpVelocity = -30;
+    this.jumpVelocity = -50;
     this.currentJumpVelocity = 0;
     this.falling = false;
     this.gravity = 5;
     this.playerState = "IDLE";
-    this.maxJump = maxJumpFactor;
+    this.maxJump = maxJump;
+    this.jumpAudio = new Audio("Sounds/jumping.mp3");
 
     this.idleSpirts = [
       {
@@ -248,6 +374,7 @@ class Player {
   }
 
   init(playerWidth, height, coordX, coordY) {
+    this.defaultSpirtHeight = playerWidth;
     this.spirtWidth = playerWidth;
     this.spirtHeight = playerWidth;
     this.canvasHeight = height;
@@ -296,13 +423,14 @@ class Player {
       this.spirtWidth,
       spirtHeight
     );
-    context.scale(-1, 1);
-
     context.restore();
   }
 
   update(velocity) {
     // this.jumpVelocity = -this.jumpVelocityFactor * velocity;
+    this.spirtsIndex = ++this.spirtsIndex % this.currentSpirts.length;
+
+    if (this.playerState == "IDLE" || this.playerState == "LOSE") return;
 
     if (this.jumping && this.alive) {
       this.currentJumpVelocity += this.gravity;
@@ -321,17 +449,20 @@ class Player {
         this.updateState("RUN");
       }
     }
-
-    this.spirtsIndex = ++this.spirtsIndex % this.currentSpirts.length;
   }
 
   updateState(state) {
     this.playerState = state;
+    this.coordY = this.coordY + this.spirtHeight - this.defaultSpirtHeight;
+    this.spirtHeight = this.defaultSpirtHeight;
     this.jumping = false;
 
     switch (state) {
       case "IDLE": {
+        this.alive = true;
+        this.jumping = false;
         this.currentSpirts = this.idleSpirts;
+        this.coordY = this.initialCoordY;
         break;
       }
       case "RUN": {
@@ -344,6 +475,9 @@ class Player {
         this.jumping = true;
         this.currentJumpVelocity = this.jumpVelocity;
         this.currentSpirts = this.jumpSpirts;
+        this.spirtHeight =
+          this.defaultSpirtHeight *
+          (this.currentSpirts[0].frameHeight / this.frameWidth);
         break;
       }
       case "LOSE": {
@@ -353,8 +487,15 @@ class Player {
         break;
       }
     }
-
     this.spirtsIndex = 0;
+  }
+
+  start() {
+    this.updateState("RUN");
+  }
+
+  reset() {
+    this.updateState("IDLE");
   }
 
   jump() {
@@ -362,6 +503,7 @@ class Player {
 
     if (!this.jumping) {
       this.updateState("JUMP");
+      this.jumpAudio.play();
       this.falling = false;
     }
   }
@@ -472,7 +614,7 @@ class Obstacles {
     });
   }
 
-  update(velocity) {
+  update(velocity, context) {
     this.obstacles = this.obstacles.map((obstacle) => {
       if (obstacle.coordX + obstacle.spirtWidth < 0) {
         let obstacle = this.generateObstacles();
@@ -481,6 +623,11 @@ class Obstacles {
       obstacle.coordX -= velocity;
       return obstacle;
     });
+    this.draw(context);
+  }
+
+  reset() {
+    this.obstacles = this.generateObstacles();
   }
 
   generateObstacles = (
@@ -545,7 +692,7 @@ class Ground {
     this.spirtWidth = groundWidth;
     this.spirtHeight = this.spirtWidth * this.ratio;
     Ground.groundHeight = this.spirtHeight;
-    this.noOfGrounds = Math.ceil(canvasWidth / this.spirtWidth) + 2;
+    this.noOfGrounds = Math.ceil(canvasWidth / this.spirtWidth) + 4;
     this.grounds = this.generateGround(this.noOfGrounds);
   };
 
@@ -634,7 +781,7 @@ class Clouds {
     this.spirtsIndex = 0;
     this.cloudSpeed = 40;
     this.cloudSpawnArea = cloudSpawnArea;
-    this.clouds = this.generateCloud(5, canvasWidth, cloudSpawnArea);
+    this.clouds = this.generateCloud(7, canvasWidth, cloudSpawnArea);
     this.init(cloudWidth, canvasWidth);
   }
 
@@ -663,22 +810,37 @@ class Clouds {
   update(velocity) {
     let newCloudAdd = false;
     this.clouds = this.clouds.map((cloud) => {
+      let cloudSpeed = cloud.speedFactor * this.cloudSpeed - velocity;
+
+      if (velocity < 0) {
+        cloud.movingForward = true;
+      }
+
+      if (cloudSpeed < 0 && cloud.movingForward) {
+        cloud.coordX =
+          -this.spirtWidth - Math.random() * 0.2 * this.canvasWidth;
+        cloud.movingForward = false;
+        return cloud;
+      }
+
       if (
-        cloud.coordX + this.spirtWidth < 0 ||
-        cloud.coordX > this.canvasWidth
+        (cloudSpeed < 0 &&
+          !cloud.movingForward &&
+          cloud.coordX > this.canvasWidth) ||
+        (cloudSpeed > 0 &&
+          cloud.movingForward &&
+          cloud.coordX + this.spirtWidth < 0)
       ) {
         let cloud = this.generateCloud(
           1,
           this.canvasWidth,
-          this.cloudSpawnArea,
-          velocity
+          this.cloudSpawnArea
         );
         newCloudAdd = true;
         return cloud;
       }
 
-      // cloud.coordX += velocity - cloud.speedFactor * this.cloudSpeed;
-      cloud.coordX -= cloud.speedFactor * this.cloudSpeed - velocity;
+      cloud.coordX -= cloudSpeed;
       return cloud;
     });
 
@@ -690,8 +852,7 @@ class Clouds {
   generateCloud = (
     numberOfClouds = 1,
     canvasWidth = this.canvasWidth,
-    cloudSpawnArea = this.cloudSpawnArea,
-    gameVelocity = 0
+    cloudSpawnArea = this.cloudSpawnArea
   ) => {
     if (numberOfClouds < 1)
       throw new Error("Number Of Cloud cant be smaller than one");
@@ -704,10 +865,8 @@ class Clouds {
       };
 
       cloud.coordX = canvasWidth + (Math.random() * canvasWidth) / 4;
-      // cloud.speedFactor * this.cloudSpeed - gameVelocity < 0
-      //   ? canvasWidth + (Math.random() * canvasWidth) / 4
-      //   : -this.spirtWidth;
       cloud.coordY = Math.random() * cloudSpawnArea;
+      cloud.movingForward = true;
 
       return cloud;
     }
@@ -718,6 +877,7 @@ class Clouds {
         ...this.cloudSpirts[randomInt],
         coordX: Math.random() * 1.5 * canvasWidth,
         coordY: Math.random() * cloudSpawnArea,
+        movingForward: true,
       };
       clouds.push(cloud);
     }
@@ -729,41 +889,120 @@ class Clouds {
 }
 
 (function () {
-  let canvas = document.getElementById("canvas");
-  const context = canvas.getContext("2d");
+  window.addEventListener("load", function (event) {
+    let startBox = document.getElementById("start-controller-box");
+    let restartBox = document.getElementById("restart-controller-box");
+    let startText = document.getElementById("start-game-text");
+    let restartText = document.getElementById("restart-game-text");
+    let highScoreText = document.getElementById("game-high-score-text");
+    let gameScoreTexts = document.getElementsByClassName("game-score-text");
+    let gameHighScore = document.getElementsByClassName("game-high-score")[0];
+    let startButton = document.getElementById("btn-start");
+    let restartButton = document.getElementById("btn-restart");
+    let gameInfoDrawerOpener = document.getElementById("game-info-menu-opener");
+    let gameScore = document.getElementById("game-score");
+    let drawerGameScore = document.getElementById("drawer-game-score");
 
-  let gameController = new Controller(context);
+    const touchDevice = "ontouchstart" in document.documentElement;
 
-  gameController.draw();
+    if (touchDevice) {
+      startText.innerText = "Touch to Jump and avoid obstacle";
+      restartText.innerText = "Tap restart button to play again";
+    } else {
+      startText.innerText = "Press Spacebar/ArrowUp to Jump and avoid obstacle";
+      restartText.innerText = "Press Spacebar or restart button to play again";
+    }
 
-  let lastTime = 0;
-  function FrameReqCallback(timestamp) {
-    const deltaTime = timestamp - lastTime;
-    lastTime = timestamp;
+    function displayHighScore(score = 0) {
+      let highScore = localStorage.getItem("doge-runner-high-score");
+      if (!highScore || +highScore <= +score) {
+        highScore = score;
+        localStorage.setItem("doge-runner-high-score", score);
+        highScoreText.innerText = score;
+      } else {
+        highScoreText.innerText = highScore;
+      }
+      if (highScore && +highScore > 0) gameHighScore.classList.remove("hidden");
+    }
+
+    function displayCurrentScore(score) {
+      Array.from(gameScoreTexts).forEach((htmlSpan) => {
+        htmlSpan.innerText = score;
+      });
+    }
+
+    displayHighScore();
+
+    function gameOnStart() {
+      gameInfoDrawerOpener.checked = false;
+      gameScore.classList.remove("hidden");
+      drawerGameScore.classList.add("hidden");
+    }
+
+    function gameOnLose(currentScore, controller) {
+      startBox.classList.add("hidden");
+      restartBox.classList.remove("hidden");
+      gameHighScore.classList.remove("hidden");
+      gameScore.classList.add("hidden");
+      drawerGameScore.classList.remove("hidden");
+
+      displayCurrentScore(currentScore);
+      displayHighScore(currentScore);
+
+      setTimeout(() => {
+        gameInfoDrawerOpener.checked = true;
+        controller.setReset();
+      }, 2000);
+    }
+
+    let canvas = document.getElementById("canvas");
+    const context = canvas.getContext("2d");
+
+    let gameController = new Controller(
+      context,
+      gameOnStart,
+      gameOnLose,
+      displayCurrentScore
+    );
 
     gameController.draw();
-    gameController.update(deltaTime);
 
-    setTimeout(() => {
-      window.requestAnimationFrame(FrameReqCallback);
-    }, 1000 / 12);
+    let lastTime = 0;
+    function FrameReqCallback(timestamp) {
+      const deltaTime = timestamp - lastTime;
+      lastTime = timestamp;
 
-    if (gameController.status === "END") {
-      window.cancelAnimationFrame(requestAnimFrameId);
+      gameController.draw();
+      gameController.update(deltaTime);
+
+      setTimeout(() => {
+        window.requestAnimationFrame(FrameReqCallback);
+      }, 1000 / 12);
+
+      if (gameController.status === "END") {
+        window.cancelAnimationFrame(requestAnimFrameId);
+      }
     }
-  }
 
-  let requestAnimFrameId = window.requestAnimationFrame(FrameReqCallback);
+    let requestAnimFrameId = window.requestAnimationFrame(FrameReqCallback);
 
-  window.addEventListener("load", function (event) {
-    // display.resize();
+    window.addEventListener("resize", gameController.resize);
+    window.addEventListener("mousedown", gameController.inputHandler);
+    window.addEventListener("mouseup", gameController.inputHandler);
+    window.addEventListener("keydown", gameController.inputHandler);
+    window.addEventListener("keyup", gameController.inputHandler);
+    window.addEventListener("touchstart", gameController.inputHandler);
+    window.addEventListener("touchend", gameController.inputHandler);
+
+    startButton.addEventListener("click", () => {
+      gameInfoDrawerOpener.checked = false;
+      gameController.start();
+    });
+
+    restartButton.addEventListener("click", () => {
+      gameController.reset();
+    });
+
     // GameController.start();
   });
-  window.addEventListener("resize", gameController.resize);
-  window.addEventListener("mousedown", gameController.inputHandler);
-  window.addEventListener("mouseup", gameController.inputHandler);
-  window.addEventListener("keydown", gameController.inputHandler);
-  window.addEventListener("keyup", gameController.inputHandler);
-  window.addEventListener("touchstart", gameController.inputHandler);
-  window.addEventListener("touchend", gameController.inputHandler);
 })();
