@@ -20,6 +20,7 @@
 
         #canvas {
             position: relative;
+            margin: 0 auto;
         }
 
         img {
@@ -28,7 +29,8 @@
 
         .game-container {
             position: relative;
-            overflow: hidden;
+            overflow-x: hidden;
+            height: 100vh;
         }
 
         .game-info {
@@ -38,7 +40,6 @@
             left: 50%;
             bottom: 0;
             background: white;
-            overflow: hidden;
         }
 
         .game-info-toggler {
@@ -119,7 +120,7 @@
             top: 0;
             bottom: 0;
             right: 0;
-            width: 50%;
+            width: 100%;
             transform: translateX(100%);
             transition: transform 0.5s cubic-bezier(0.4, 0.0, 0.2, 1);
             padding-top: 40px;
